@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEON PROTOCOL: TACTICAL STRIKE</title>
+<style>
+  :root {
+    --canvas: #0a0c12;
+    --surface: #121622;
+    --surface-glass: rgba(18, 22, 34, 0.85);
+    --hairline: #1f2738;
+    --cyan: #00f3ff;
+    --magenta: #ff0055;
+    --amber: #ffb700;
+    --ink: #edf2f8;
+    --muted: #728096;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    user-select: none;
+  }
+  #game, #game canvas { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+
+  /* Crosshair */
+  #crosshair {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 20px;
+    height: 20px;
+    transform: translate(-50%, -50%);
+  }
+  #crosshair i { position: absolute; background: var(--cyan); box-shadow: 0 0 4px var(--cyan); }
+  #crosshair i:nth-child(1) { left: 9px; top: 0; width: 2px; height: 6px; }
+  #crosshair i:nth-child(2) { left: 9px; bottom: 0; width: 2px; height: 6px; }
+  #crosshair i:nth-child(3) { top: 9px; left: 0; height: 2px; width: 6px; }
+  #crosshair i:nth-child(4) { top: 9px; right: 0; height: 2px; width: 6px; }
+
+  /* Hitmarker */
+  #hitmarker {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 24px;
+    height: 24px;
+    transform: translate(-50%, -50%) rotate(45deg);
+    opacity: 0;
+    transition: opacity 60ms ease-out;
+  }
+  #hitmarker.on { opacity: 1; }
+  #hitmarker i { position: absolute; background: var(--amber); }
+  #hitmarker.kill i { background: var(--magenta); box-shadow: 0 0 6px var(--magenta); }
+  #hitmarker i:nth-child(1) { left: 11px; top: 0; width: 2px; height: 7px; }
+  #hitmarker i:nth-child(2) { left: 11px; bottom: 0; width: 2px; height: 7px; }
+  #hitmarker i:nth-child(3) { top: 11px; left: 0; height: 2px; width: 7px; }
+  #hitmarker i:nth-child(4) { top: 11px; right: 0; height: 2px; width: 7px; }
+
+  /* Top HUD: Round Timer & Team Scores */
+  #top-banner {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 8px 24px;
+    background: var(--surface-glass);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    backdrop-filter: blur(8px);
+  }
+  .team-tag { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .syndicate { color: var(--cyan); }
+  .security { color: var(--magenta); }
+  #team-score { font-family: var(--font-mono); font-size: 24px; font-weight: 700; }
+  #round-timer { font-family: var(--font-mono); font-size: 20px; color: var(--amber); }
+
+  /* Bottom Left HUD: Health & Armor & Credits */
+  #stats-panel {
+    position: fixed;
+    left: 32px;
+    bottom: 28px;
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    font-family: var(--font-mono);
+  }
+  .stat-box {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .stat-label { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; }
+  .stat-val { font-size: 32px; font-weight: 700; line-height: 1; }
+  #hp-val { color: var(--cyan); }
+  #armor-val { color: var(--ink); }
+  #money-val { color: var(--amber); }
+
+  /* Bottom Right HUD: Ammo & Weapon */
+  #ammo-panel {
+    position: fixed;
+    right: 32px;
+    bottom: 28px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--font-mono);
+  }
+  #ammo-mag { font-size: 48px; font-weight: 700; color: var(--ink); line-height: 1; }
+  #ammo-reserve { font-size: 20px; color: var(--muted); }
+
+  /* Top Right: Killfeed */
+  #killfeed {
+    position: fixed;
+    top: 24px;
+    right: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+    font-size: 13px;
+    font-family: var(--font-mono);
+  }
+  .kill-item {
+    background: var(--surface-glass);
+    padding: 6px 12px;
+    border-left: 3px solid var(--magenta);
+    border-radius: 4px;
+    animation: fadeIn 150ms ease-out;
+  }
+  .k-killer { color: var(--cyan); font-weight: 600; }
+  .k-wep { color: var(--muted); margin: 0 4px; }
+  .k-victim { color: var(--magenta); font-weight: 600; }
+
+  /* Buy Menu Overlay */
+  #buy-overlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(10, 12, 18, 0.85);
+    z-index: 20;
+    backdrop-filter: blur(6px);
+  }
+  #buy-overlay[hidden] { display: none; }
+  .buy-modal {
+    width: min(640px, 90vw);
+    background: var(--surface);
+    border: 1px solid var(--cyan);
+    box-shadow: 0 0 24px rgba(0, 243, 255, 0.2);
+    border-radius: 8px;
+    padding: 28px;
+  }
+  .buy-modal h2 { margin: 0 0 16px; color: var(--cyan); font-size: 22px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .weapons-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .weapon-card {
+    background: var(--canvas);
+    border: 1px solid var(--hairline);
+    padding: 16px;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .weapon-title { font-weight: 600; font-size: 16px; color: var(--ink); margin-bottom: 4px; }
+  .weapon-price { font-family: var(--font-mono); color: var(--amber); font-size: 15px; margin-bottom: 12px; }
+  .buy-btn {
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 120ms ease;
+  }
+  .buy-btn:hover { background: var(--cyan); color: var(--canvas); }
+
+  /* Main / Pause / Victory Overlay */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(10, 12, 18, 0.9);
+    z-index: 30;
+    backdrop-filter: blur(8px);
+  }
+  .overlay[hidden] { display: none; }
+  .panel {
+    width: min(440px, 100%);
+    padding: 32px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  }
+  .panel h1 {
+    margin: 0 0 10px;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--cyan);
+    text-transform: uppercase;
+  }
+  .panel p {
+    margin: 0 0 24px;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  #play {
+    width: 100%;
+    font: inherit;
+    font-weight: 600;
+    padding: 12px 18px;
+    border: none;
+    border-radius: 6px;
+    background: var(--cyan);
+    color: var(--canvas);
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: background 120ms ease;
+  }
+  #play:hover { background: #33f6ff; }
+  .keys-list {
+    margin: 20px 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .keys-list li { display: flex; align-items: center; gap: 8px; }
+  .keys-list kbd {
+    min-width: 22px;
+    padding: 2px 6px;
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink);
+    background: var(--canvas);
+    text-align: center;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud" aria-hidden="true">
+  <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+  <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+
+  <div id="top-banner">
+    <span class="team-tag syndicate">SYNDICATE</span>
+    <span id="team-score">0 : 0</span>
+    <span class="team-tag security">SECURITY</span>
+    <span id="round-timer">1:45</span>
+  </div>
+
+  <div id="stats-panel">
+    <div class="stat-box">
+      <span class="stat-label">Health</span>
+      <span id="hp-val" class="stat-val">100</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Armor</span>
+      <span id="armor-val" class="stat-val">100</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Credits</span>
+      <span id="money-val" class="stat-val">$800</span>
+    </div>
+  </div>
+
+  <div id="ammo-panel">
+    <span id="ammo-mag">30</span>
+    <span id="ammo-reserve">/ 90</span>
+  </div>
+
+  <div id="killfeed"></div>
+</div>
+
+<div id="buy-overlay" hidden>
+  <div class="buy-modal">
+    <h2>Tactical Armory (Buy Menu)</h2>
+    <div class="weapons-grid">
+      <div class="weapon-card">
+        <div>
+          <div class="weapon-title">Pulse-9 Sidearm</div>
+          <div class="weapon-price">Free (Standard)</div>
+        </div>
+        <button class="buy-btn" data-weapon="pistol">EQUIP</button>
+      </div>
+      <div class="weapon-card">
+        <div>
+          <div class="weapon-title">Vector-Neon SMG</div>
+          <div class="weapon-price">$1,200</div>
+        </div>
+        <button class="buy-btn" data-weapon="smg">PURCHASE</button>
+      </div>
+      <div class="weapon-card">
+        <div>
+          <div class="weapon-title">Viper-AR Rifle</div>
+          <div class="weapon-price">$2,700</div>
+        </div>
+        <button class="buy-btn" data-weapon="rifle">PURCHASE</button>
+      </div>
+      <div class="weapon-card">
+        <div>
+          <div class="weapon-title">Apex-Rail Sniper</div>
+          <div class="weapon-price">$4,500</div>
+        </div>
+        <button class="buy-btn" data-weapon="sniper">PURCHASE</button>
+      </div>
+    </div>
+    <p style="margin: 0; font-size: 13px; color: var(--muted); text-align: center;">Press <kbd style="color:var(--cyan)">B</kbd> to close Armory and deploy</p>
+  </div>
+</div>
+
+<div id="overlay" class="overlay">
+  <section class="panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+    <h1 id="overlay-title">NEON PROTOCOL</h1>
+    <p id="overlay-copy">Tactical Strike in Sector-7. Eliminate the security detail or capture the Data Core.</p>
+    <button id="play" type="button">DEPLOY OPERATIVE</button>
+    <ul class="keys-list">
+      <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</li>
+      <li><kbd>Mouse</kbd> Aim & Look</li>
+      <li><kbd>Click</kbd> Fire</li>
+      <li><kbd>R</kbd> Reload</li>
+      <li><kbd>B</kbd> Armory Buy</li>
+      <li><kbd>Space</kbd> Jump</li>
+    </ul>
+  </section>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
